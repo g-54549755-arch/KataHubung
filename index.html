@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grab and Throw - Knowledge Arena (Kata Hubung Tahun 1)</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Fonts: Fredoka / Quicksand for playful UI -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Hands & Camera Utils Scripts via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Fredoka', 'Quicksand', sans-serif;
+            background: linear-gradient(135deg, #1e1b4b 0%, #311b92 50%, #4a148c 100%);
+            touch-action: none;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* Glassmorphism utility */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            border: 3px solid #fde047;
+        }
+
+        /* Mirror webcam preview */
+        #webcam {
+            transform: scaleX(-1);
+        }
+
+        /* Pulse glow animation for interactive targets */
+        @keyframes pulseGlow {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(253, 224, 71, 0.6); }
+            50% { transform: scale(1.03); box-shadow: 0 0 30px rgba(253, 224, 71, 0.9); }
+        }
+
+        .target-glow {
+            animation: pulseGlow 2s infinite ease-in-out;
+        }
+
+        /* Custom scrollbar just in case */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="w-screen h-screen flex flex-col justify-between items-center relative text-white">
+
+    <!-- TOP BAR / HUD -->
+    <header class="w-full max-w-6xl px-4 py-3 z-20 flex justify-between items-center gap-2">
+        <!-- Brand / Title -->
+        <div class="flex items-center gap-3 glass-panel px-4 py-2 rounded-2xl">
+            <i class="fa-solid fa-gamepad text-yellow-300 text-2xl md:text-3xl animate-bounce"></i>
+            <div>
+                <h1 class="text-xl md:text-2xl font-bold text-yellow-300 tracking-wide uppercase leading-none drop-shadow">KNOWLEDGE ARENA</h1>
+                <p class="text-xs text-cyan-200 font-semibold">Kata Hubung • Bahasa Melayu Tahun 1</p>
+            </div>
+        </div>
+
+        <!-- Game Stats: Question, Score, Lives, Timer -->
+        <div class="flex items-center gap-3">
+            <!-- Question Counter -->
+            <div class="glass-panel px-4 py-2 rounded-2xl text-center hidden sm:block">
+                <span class="text-xs text-gray-300 block uppercase font-bold">Soalan</span>
+                <span id="question-num" class="text-lg md:text-xl font-extrabold text-cyan-300">1/10</span>
+            </div>
+
+            <!-- Score -->
+            <div class="glass-panel px-4 py-2 rounded-2xl text-center min-w-[90px]">
+                <span class="text-xs text-gray-300 block uppercase font-bold">Skor</span>
+                <span id="score-val" class="text-xl md:text-2xl font-extrabold text-yellow-400">0</span>
+            </div>
+
+            <!-- Lives -->
+            <div class="glass-panel px-4 py-2 rounded-2xl text-center">
+                <span class="text-xs text-gray-300 block uppercase font-bold">Nyawa</span>
+                <div id="lives-container" class="flex gap-1 text-red-500 text-lg md:text-xl mt-0.5">
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+            </div>
+
+            <!-- Timer -->
+            <div class="glass-panel px-4 py-2 rounded-2xl text-center min-w-[80px]">
+                <span class="text-xs text-gray-300 block uppercase font-bold">Masa</span>
+                <span id="timer-val" class="text-xl md:text-2xl font-extrabold text-emerald-400">120s</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN ARENA CANVAS AREA -->
+    <main class="relative w-full flex-1 max-w-6xl mx-auto px-2 py-1 flex justify-center items-center z-10 overflow-hidden">
+        <!-- Main Game Interactive Canvas -->
+        <canvas id="gameCanvas" class="w-full h-full rounded-3xl border-4 border-white/20 shadow-2xl bg-slate-900/60 object-contain"></canvas>
+
+        <!-- Hidden Video Element for MediaPipe input -->
+        <video id="webcam" class="hidden" playsinline></video>
+
+        <!-- Small Mirror Camera PIP Feed Overlay -->
+        <div class="absolute bottom-4 right-6 w-36 h-28 md:w-48 md:h-36 rounded-2xl border-2 border-yellow-400/80 overflow-hidden shadow-2xl glass-panel z-30 pointer-events-none">
+            <canvas id="pipCanvas" class="w-full h-full object-cover"></canvas>
+            <div class="absolute top-1 left-2 text-[10px] font-bold text-yellow-300 uppercase tracking-wider bg-black/50 px-1.5 py-0.5 rounded">
+                <i class="fa-solid fa-video mr-1"></i>Kamera Anda
+            </div>
+        </div>
+
+        <!-- Gesture Status Badge Indicator -->
+        <div id="gesture-indicator" class="absolute top-4 left-6 z-30 glass-panel px-3 py-1.5 rounded-full flex items-center gap-2 pointer-events-none border border-white/30">
+            <div id="gesture-dot" class="w-3 h-3 rounded-full bg-red-500 animate-ping"></div>
+            <span id="gesture-text" class="text-xs font-bold text-gray-200">Tangan tidak dikesan</span>
+        </div>
+    </main>
+
+    <!-- INSTRUCTIONS / CONTROLS HINT FOOTER -->
+    <footer class="w-full max-w-6xl px-4 py-2 z-20 flex justify-center items-center">
+        <div class="glass-panel px-6 py-2 rounded-full flex items-center gap-4 text-xs md:text-sm text-center">
+            <span class="flex items-center gap-1.5 text-yellow-300 font-bold">
+                <i class="fa-solid fa-hand-back-fist text-base"></i> 1. Cubit (Pinch) bola jawapan
+            </span>
+            <span class="text-gray-400">•</span>
+            <span class="flex items-center gap-1.5 text-cyan-300 font-bold">
+                <i class="fa-solid fa-hand-holding-hand text-base"></i> 2. Gerakkan tangan ke sasaran
+            </span>
+            <span class="text-gray-400">•</span>
+            <span class="flex items-center gap-1.5 text-emerald-300 font-bold">
+                <i class="fa-solid fa-hand text-base"></i> 3. Buka jari untuk baling!
+            </span>
+        </div>
+    </footer>
+
+    <!-- OVERLAY 1: START / WELCOME MODAL -->
+    <div id="start-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div class="glass-card max-w-lg w-full rounded-3xl p-6 md:p-8 text-slate-800 text-center shadow-2xl relative border-4 border-yellow-400">
+            <div class="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-amber-500 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-4xl shadow-lg animate-bounce">
+                <i class="fa-solid fa-hand-pointer"></i>
+            </div>
+            <h2 class="text-3xl font-extrabold text-indigo-950 mb-1 tracking-tight">KNOWLEDGE ARENA</h2>
+            <p class="text-sm font-bold text-indigo-600 mb-4 uppercase tracking-wider">Permainan Kata Hubung (Tahun 1)</p>
+            
+            <div class="bg-indigo-50 p-4 rounded-2xl text-left text-sm text-slate-700 space-y-2.5 mb-6 border border-indigo-100">
+                <div class="flex items-start gap-3">
+                    <span class="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</span>
+                    <p>Benarkan akses <strong>kamera/webcam</strong> anda apabila diminta.</p>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
+                    <p>Temukan <strong>ibu jari dan jari telunjuk (Pinch)</strong> di atas bola jawapan untuk memegang bola.</p>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
+                    <p>Halakan ke kotak kata hubung yang betul (<strong>dan, atau, kerana, tetapi...</strong>) lalu <strong>lepaskan cubitan</strong> untuk membaling bola!</p>
+                </div>
+            </div>
+
+            <button id="btn-start" class="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-extrabold text-xl rounded-2xl shadow-xl transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3">
+                <i class="fa-solid fa-circle-play text-2xl"></i> MULA BERMAIN
+            </button>
+        </div>
+    </div>
+
+    <!-- OVERLAY 2: GAME OVER / VICTORY MODAL -->
+    <div id="gameover-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 hidden">
+        <div class="glass-card max-w-md w-full rounded-3xl p-6 text-slate-800 text-center shadow-2xl border-4 border-yellow-400">
+            <div id="gameover-icon" class="w-20 h-20 bg-yellow-400 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-4xl shadow-lg">
+                <i class="fa-solid fa-trophy"></i>
+            </div>
+            <h2 id="gameover-title" class="text-3xl font-black text-indigo-950 mb-1">TAHNIAH!</h2>
+            <p id="gameover-msg" class="text-sm font-semibold text-slate-600 mb-4">Kamu telah menyelesaikan semua soalan Kata Hubung!</p>
+
+            <div class="bg-slate-100 rounded-2xl p-4 mb-6 space-y-2 border border-slate-200">
+                <div class="flex justify-between items-center text-base font-bold text-slate-700">
+                    <span>Skor Akhir:</span>
+                    <span id="final-score" class="text-2xl font-extrabold text-indigo-600">0</span>
+                </div>
+                <div class="flex justify-between items-center text-sm font-semibold text-slate-600">
+                    <span>Masa Berbaki:</span>
+                    <span id="final-time" class="text-emerald-600 font-bold">0s</span>
+                </div>
+            </div>
+
+            <button id="btn-restart" class="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-extrabold text-lg rounded-2xl shadow-lg transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-rotate-right"></i> MAIN LAGI
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN GAME JAVASCRIPT LOGIC -->
+    <script>
+        /**
+         * 1. SOALAN KATA HUBUNG (TAHUN 1) - 10 SOALAN BESERTA LUKISAN SVG CUSTOM
+         */
+        const QUESTIONS = [
+            {
+                id: 1,
+                sentence: "Ali _____ Ahmad bermain bola di padang.",
+                options: ["dan", "atau", "kerana"],
+                correct: "dan",
+                hint: "Dua orang bersama-sama",
+                drawSvg: (ctx, x, y, size) => {
+                    // Two boys playing football
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Boy 1 (Blue)
+                    ctx.fillStyle = "#3b82f6";
+                    ctx.beginPath(); ctx.arc(-size*0.3, -size*0.1, size*0.18, 0, Math.PI*2); ctx.fill();
+                    ctx.fillRect(-size*0.38, 0, size*0.16, size*0.3);
+                    // Boy 2 (Red)
+                    ctx.fillStyle = "#ef4444";
+                    ctx.beginPath(); ctx.arc(size*0.3, -size*0.1, size*0.18, 0, Math.PI*2); ctx.fill();
+                    ctx.fillRect(size*0.22, 0, size*0.16, size*0.3);
+                    // Football
+                    ctx.fillStyle = "#ffffff";
+                    ctx.beginPath(); ctx.arc(0, size*0.25, size*0.12, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = "#000000"; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.restore();
+                }
+            },
+            {
+                id: 2,
+                sentence: "Adakah kamu suka minum susu _____ jus?",
+                options: ["kerana", "atau", "tetapi"],
+                correct: "atau",
+                hint: "Membuat pilihan antara dua minuman",
+                drawSvg: (ctx, x, y, size) => {
+                    // Milk carton vs Juice glass
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Milk box
+                    ctx.fillStyle = "#e0f2fe"; ctx.fillRect(-size*0.4, -size*0.2, size*0.25, size*0.45);
+                    ctx.fillStyle = "#0284c7"; ctx.fillText("MILK", -size*0.38, 0);
+                    // Question mark or VS
+                    ctx.fillStyle = "#f59e0b"; ctx.font = "bold 20px Fredoka"; ctx.fillText("VS", -size*0.06, 0);
+                    // Juice Glass
+                    ctx.fillStyle = "#fb923c"; ctx.beginPath(); ctx.arc(size*0.3, 0, size*0.18, 0, Math.PI); ctx.fill();
+                    ctx.fillRect(size*0.18, -size*0.2, size*0.24, size*0.2);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 3,
+                sentence: "Budak itu menangis _____ lututnya sakit.",
+                options: ["tetapi", "dan", "kerana"],
+                correct: "kerana",
+                hint: "Sebab atau alasan",
+                drawSvg: (ctx, x, y, size) => {
+                    // Crying face & bandaged knee
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Crying Emoji face
+                    ctx.fillStyle = "#fde047"; ctx.beginPath(); ctx.arc(-size*0.25, -size*0.05, size*0.25, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = "#38bdf8"; ctx.beginPath(); ctx.arc(-size*0.35, 0, size*0.06, 0, Math.PI*2); ctx.fill(); // Tear
+                    // Hurt knee bandage
+                    ctx.fillStyle = "#f43f5e"; ctx.beginPath(); ctx.arc(size*0.25, size*0.1, size*0.18, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = "#ffffff"; ctx.fillRect(size*0.15, size*0.05, size*0.2, size*0.1);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 4,
+                sentence: "Rumah Sarah kecil _____ sangat bersih.",
+                options: ["tetapi", "atau", "kerana"],
+                correct: "tetapi",
+                hint: "Menunjukkan pertentangan",
+                drawSvg: (ctx, x, y, size) => {
+                    // Small house + sparkles
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Roof
+                    ctx.fillStyle = "#ea580c"; ctx.beginPath();
+                    ctx.moveTo(0, -size*0.35); ctx.lineTo(-size*0.35, 0); ctx.lineTo(size*0.35, 0); ctx.closePath(); ctx.fill();
+                    // House Body
+                    ctx.fillStyle = "#fef08a"; ctx.fillRect(-size*0.28, 0, size*0.56, size*0.35);
+                    // Sparkles (clean)
+                    ctx.fillStyle = "#38bdf8"; ctx.font = "bold 18px sans-serif";
+                    ctx.fillText("✨", -size*0.45, -size*0.1); ctx.fillText("✨", size*0.3, -size*0.1);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 5,
+                sentence: "Siti membasuh tangan _____ makan nasi.",
+                options: ["lalu", "atau", "tetapi"],
+                correct: "lalu",
+                hint: "Perbuatan berurutan / terus lakukan",
+                drawSvg: (ctx, x, y, size) => {
+                    // Water drop and bowl
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Water Drop
+                    ctx.fillStyle = "#06b6d4"; ctx.beginPath(); ctx.arc(-size*0.25, -size*0.1, size*0.15, 0, Math.PI*2); ctx.fill();
+                    // Arrow ->
+                    ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px sans-serif"; ctx.fillText("➔", -size*0.05, 0);
+                    // Rice bowl
+                    ctx.fillStyle = "#e2e8f0"; ctx.beginPath(); ctx.arc(size*0.3, 0, size*0.2, 0, Math.PI); ctx.fill();
+                    ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(size*0.3, -size*0.05, size*0.18, Math.PI, 0); ctx.fill();
+                    ctx.restore();
+                }
+            },
+            {
+                id: 6,
+                sentence: "Kucing itu comel _____ sangat nakal.",
+                options: ["dan", "tetapi", "atau"],
+                correct: "tetapi",
+                hint: "Dua sifat berbeza",
+                drawSvg: (ctx, x, y, size) => {
+                    // Cat face
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.fillStyle = "#fb923c";
+                    ctx.beginPath(); ctx.arc(0, 0, size*0.3, 0, Math.PI*2); ctx.fill();
+                    // Ears
+                    ctx.beginPath(); ctx.moveTo(-size*0.25, -size*0.2); ctx.lineTo(-size*0.3, -size*0.4); ctx.lineTo(-size*0.1, -size*0.3); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(size*0.25, -size*0.2); ctx.lineTo(size*0.3, -size*0.4); ctx.lineTo(size*0.1, -size*0.3); ctx.fill();
+                    // Eyes
+                    ctx.fillStyle = "#000000"; ctx.beginPath(); ctx.arc(-size*0.1, -size*0.05, size*0.04, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(size*0.1, -size*0.05, size*0.04, 0, Math.PI*2); ctx.fill();
+                    ctx.restore();
+                }
+            },
+            {
+                id: 7,
+                sentence: "Mani membeli roti _____ susu di kedai.",
+                options: ["dan", "kerana", "lalu"],
+                correct: "dan",
+                hint: "Menambah barangan",
+                drawSvg: (ctx, x, y, size) => {
+                    // Bread loaf & Bottle
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Bread
+                    ctx.fillStyle = "#d97706"; ctx.fillRect(-size*0.38, -size*0.1, size*0.3, size*0.3);
+                    // Bottle
+                    ctx.fillStyle = "#a855f7"; ctx.fillRect(size*0.15, -size*0.25, size*0.18, size*0.45);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 8,
+                sentence: "Kamu hendak naik bas _____ teksi?",
+                options: ["kerana", "atau", "sambil"],
+                correct: "atau",
+                hint: "Pilihan kenderaan",
+                drawSvg: (ctx, x, y, size) => {
+                    // Bus icon simple
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.fillStyle = "#eab308"; ctx.fillRect(-size*0.35, -size*0.2, size*0.7, size*0.35);
+                    ctx.fillStyle = "#1e293b"; 
+                    ctx.beginPath(); ctx.arc(-size*0.2, size*0.15, size*0.08, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(size*0.2, size*0.15, size*0.08, 0, Math.PI*2); ctx.fill();
+                    ctx.restore();
+                }
+            },
+            {
+                id: 9,
+                sentence: "Abang mendengar muzik _____ membaca buku.",
+                options: ["sambil", "lalu", "kerana"],
+                correct: "sambil",
+                hint: "Dua kerja pada masa yang sama",
+                drawSvg: (ctx, x, y, size) => {
+                    // Music notes & Book
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // Book
+                    ctx.fillStyle = "#ec4899"; ctx.fillRect(-size*0.3, -size*0.1, size*0.35, size*0.3);
+                    // Music note
+                    ctx.fillStyle = "#06b6d4"; ctx.font = "bold 28px sans-serif"; ctx.fillText("🎵", size*0.1, 0);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 10,
+                sentence: "Cikgu senyum _____ murid-murid rajin.",
+                options: ["atau", "tetapi", "kerana"],
+                correct: "kerana",
+                hint: "Sebab cikgu gembira",
+                drawSvg: (ctx, x, y, size) => {
+                    // Teacher Happy Face
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.fillStyle = "#fde047"; ctx.beginPath(); ctx.arc(0, 0, size*0.3, 0, Math.PI*2); ctx.fill();
+                    // Big Smile
+                    ctx.strokeStyle = "#000000"; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(0, size*0.05, size*0.15, 0, Math.PI); ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        ];
+
+        /**
+         * 2. AUDIO SYNTHESIZER (WEB AUDIO API) - TIADA FAIL LUAR
+         */
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+            }
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+            playPop() { // Sound when grabbing ball
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.08);
+            }
+            playThrow() { // Whoosh sound for throw
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.2);
+            }
+            playCorrect() { // Success chime
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now + i * 0.08);
+                    gain.gain.setValueAtTime(0.25, now + i * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.25);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(now + i * 0.08);
+                    osc.stop(now + i * 0.08 + 0.25);
+                });
+            }
+            playWrong() { // Buzz sound
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.setValueAtTime(110, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.3);
+            }
+        }
+        const sfx = new SoundFX();
+
+        /**
+         * 3. GAME STATE & VARIABLES
+         */
+        let currentQIndex = 0;
+        let score = 0;
+        let lives = 3;
+        let timeLeft = 120;
+        let timerInterval = null;
+        let isGameOver = false;
+        let gameStarted = false;
+
+        // Hand gesture tracking parameters
+        let handX = 0, handY = 0; // Normalized 0..1
+        let isPinched = false;
+        let wasPinched = false;
+        let handDetected = false;
+
+        // Visual Slash / Trail Effect Points
+        let trailPoints = [];
+
+        // Dynamic Targets & Throwable Ball Data
+        let targets = []; // 3 answer targets at upper canvas
+        let answerBall = {
+            x: 0,
+            y: 0,
+            radius: 35,
+            isGrabbed: false,
+            isFlying: false,
+            vx: 0,
+            vy: 0,
+            originX: 0,
+            originY: 0
+        };
+
+        // Particle System for Hits/Slashes
+        let particles = [];
+
+        /**
+         * 4. CANVAS SETUP & RESPONSIVENESS
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const pipCanvas = document.getElementById('pipCanvas');
+        const pipCtx = pipCanvas.getContext('2d');
+
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            pipCanvas.width = 192;
+            pipCanvas.height = 144;
+            
+            // Reposition ball origin based on canvas size
+            if (!answerBall.isGrabbed && !answerBall.isFlying) {
+                answerBall.originX = canvas.width / 2;
+                answerBall.originY = canvas.height - 80;
+                answerBall.x = answerBall.originX;
+                answerBall.y = answerBall.originY;
+            }
+            setupTargets();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        /**
+         * 5. GAME LOGIC & QUESTION INITIALIZATION
+         */
+        function setupTargets() {
+            if (!QUESTIONS[currentQIndex]) return;
+            const q = QUESTIONS[currentQIndex];
+            const count = q.options.length;
+            const width = Math.min(180, (canvas.width - 60) / count);
+            const height = 75;
+            const startY = 70;
+            const totalW = count * width + (count - 1) * 20;
+            const startX = (canvas.width - totalW) / 2;
+
+            targets = q.options.map((opt, i) => {
+                return {
+                    text: opt,
+                    x: startX + i * (width + 20),
+                    y: startY,
+                    w: width,
+                    h: height,
+                    color: i === 0 ? '#3b82f6' : i === 1 ? '#eab308' : '#ec4899'
+                };
+            });
+        }
+
+        function loadQuestion(index) {
+            if (index >= QUESTIONS.length) {
+                endGame(true);
+                return;
+            }
+            currentQIndex = index;
+            document.getElementById('question-num').innerText = `${index + 1}/${QUESTIONS.length}`;
+            
+            // Reset Ball Position
+            answerBall.isGrabbed = false;
+            answerBall.isFlying = false;
+            answerBall.vx = 0;
+            answerBall.vy = 0;
+            answerBall.x = canvas.width / 2;
+            answerBall.y = canvas.height - 80;
+
+            setupTargets();
+        }
+
+        function updateLivesUI() {
+            const container = document.getElementById('lives-container');
+            container.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                if (i < lives) {
+                    container.innerHTML += `<i class="fa-solid fa-heart animate-pulse"></i>`;
+                } else {
+                    container.innerHTML += `<i class="fa-regular fa-heart text-gray-500/50"></i>`;
+                }
+            }
+        }
+
+        /**
+         * 6. MEDIAPIPE HANDS WEBCAM TRACKING
+         */
+        const videoElement = document.getElementById('webcam');
+        const gestureText = document.getElementById('gesture-text');
+        const gestureDot = document.getElementById('gesture-dot');
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults((results) => {
+            // Render webcam stream into PIP mini canvas
+            pipCtx.save();
+            pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+            pipCtx.translate(pipCanvas.width, 0);
+            pipCtx.scale(-1, 1);
+            pipCtx.drawImage(results.image, 0, 0, pipCanvas.width, pipCanvas.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Draw skeleton landmarks on PIP canvas
+                drawPipSkeleton(landmarks);
+
+                // Index Tip (8) & Thumb Tip (4)
+                const indexTip = landmarks[8];
+                const thumbTip = landmarks[4];
+
+                // Screen coordinates (Mirrored horizontally)
+                const targetX = (1 - indexTip.x) * canvas.width;
+                const targetY = indexTip.y * canvas.height;
+
+                // Smooth hand movement (Lerp)
+                handX += (targetX - handX) * 0.4;
+                handY += (targetY - handY) * 0.4;
+
+                // Calculate Pinch Distance between Thumb & Index Tip
+                const dx = indexTip.x - thumbTip.x;
+                const dy = indexTip.y - thumbTip.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Threshold for pinch gesture
+                wasPinched = isPinched;
+                isPinched = distance < 0.075;
+
+                // Update Hand Detection Status UI
+                handDetected = true;
+                gestureDot.className = "w-3 h-3 rounded-full bg-emerald-400";
+                gestureText.innerText = isPinched ? "PINCH / CUBIT (Memegang Bola)" : "TANGAN DIKESAN (Buka)";
+            } else {
+                handDetected = false;
+                isPinched = false;
+                gestureDot.className = "w-3 h-3 rounded-full bg-red-500 animate-ping";
+                gestureText.innerText = "Tangan tidak dikesan";
+            }
+            pipCtx.restore();
+
+            // Handle Interaction logic based on gesture status
+            handleHandGestureInteraction();
+        });
+
+        function drawPipSkeleton(landmarks) {
+            pipCtx.fillStyle = '#fde047';
+            pipCtx.strokeStyle = '#38bdf8';
+            pipCtx.lineWidth = 2;
+
+            landmarks.forEach((pt) => {
+                pipCtx.beginPath();
+                pipCtx.arc(pt.x * pipCanvas.width, pt.y * pipCanvas.height, 3, 0, Math.PI * 2);
+                pipCtx.fill();
+            });
+        }
+
+        // Start Camera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+
+        /**
+         * 7. GESTURE INTERACTION & THROW PHYSICS LOGIC
+         */
+        function handleHandGestureInteraction() {
+            if (!gameStarted || isGameOver) return;
+
+            // Update Hand Trail (Slash FX)
+            if (handDetected) {
+                trailPoints.push({ x: handX, y: handY, alpha: 1.0 });
+                if (trailPoints.length > 14) trailPoints.shift();
+            }
+
+            // Ball Grab & Release Logic
+            if (handDetected) {
+                // Check distance from hand cursor to ball
+                const distToBall = Math.hypot(handX - answerBall.x, handY - answerBall.y);
+
+                // GRAB EVENT: Pinch starts near ball
+                if (isPinched && !answerBall.isFlying) {
+                    if (distToBall < answerBall.radius * 2.5 || answerBall.isGrabbed) {
+                        if (!answerBall.isGrabbed) {
+                            sfx.playPop();
+                        }
+                        answerBall.isGrabbed = true;
+                        answerBall.x = handX;
+                        answerBall.y = handY;
+                    }
+                }
+
+                // THROW EVENT: Release pinch while holding ball
+                if (wasPinched && !isPinched && answerBall.isGrabbed) {
+                    answerBall.isGrabbed = false;
+                    answerBall.isFlying = true;
+                    sfx.playThrow();
+
+                    // Calculate throw velocity based on hand trail trajectory
+                    if (trailPoints.length >= 3) {
+                        const last = trailPoints[trailPoints.length - 1];
+                        const prev = trailPoints[trailPoints.length - 4] || trailPoints[0];
+                        answerBall.vx = (last.x - prev.x) * 0.35;
+                        answerBall.vy = (last.y - prev.y) * 0.35;
+                    }
+
+                    // Minimum upward throw force guarantee
+                    if (Math.abs(answerBall.vy) < 4) answerBall.vy = -14;
+                }
+            }
+        }
+
+        /**
+         * 8. PARTICLE VFX SYSTEM
+         */
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 35; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 8 + 2;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: Math.random() * 6 + 3,
+                    color: color,
+                    alpha: 1,
+                    decay: Math.random() * 0.03 + 0.015
+                });
+            }
+        }
+
+        function updateAndDrawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= p.decay;
+
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        /**
+         * 9. MAIN GAME UPDATE & RENDER LOOP
+         */
+        function gameLoop() {
+            // Clear Screen
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameStarted && !isGameOver) {
+                // 1. Draw Question Box & Visual SVG Illustration
+                drawQuestionArea();
+
+                // 2. Draw Target Answer Boxes
+                drawTargets();
+
+                // 3. Update Ball Physics
+                updateBallPhysics();
+
+                // 4. Draw Ball
+                drawAnswerBall();
+
+                // 5. Draw Hand Cursor & Slash/Trail Effect
+                drawHandTrail();
+
+                // 6. Update & Render Particle FX
+                updateAndDrawParticles();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function drawQuestionArea() {
+            const q = QUESTIONS[currentQIndex];
+            if (!q) return;
+
+            // Main Question Card Container
+            const cardW = Math.min(650, canvas.width - 40);
+            const cardH = 150;
+            const cardX = (canvas.width - cardW) / 2;
+            const cardY = 160;
+
+            // Background Card
+            ctx.save();
+            ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.roundRect(cardX, cardY, cardW, cardH, 20);
+            ctx.fill();
+            ctx.stroke();
+
+            // Render SVG Visual Graphic inside card
+            q.drawSvg(ctx, cardX + 80, cardY + cardH / 2, 70);
+
+            // Question Sentence Text
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 20px Fredoka";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+
+            // Wrap / Fill Text with blank space highlighted
+            const textX = cardX + 170;
+            const sentenceParts = q.sentence.split("_____");
+
+            ctx.fillText(sentenceParts[0], textX, cardY + cardH / 2 - 12);
+
+            // Highlighted Blank Space [...]
+            ctx.fillStyle = "#fde047";
+            ctx.fillRect(textX + ctx.measureText(sentenceParts[0]).width + 5, cardY + cardH / 2 - 28, 90, 32);
+            ctx.fillStyle = "#0f172a";
+            ctx.fillText("[ ? ]", textX + ctx.measureText(sentenceParts[0]).width + 30, cardY + cardH / 2 - 12);
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(sentenceParts[1], textX + ctx.measureText(sentenceParts[0]).width + 105, cardY + cardH / 2 - 12);
+
+            // Clue/Hint text
+            ctx.fillStyle = "#94a3b8";
+            ctx.font = "italic 14px Quicksand";
+            ctx.fillText(`Petunjuk: ${q.hint}`, textX, cardY + cardH / 2 + 25);
+
+            ctx.restore();
+        }
+
+        function drawTargets() {
+            targets.forEach((t) => {
+                ctx.save();
+                // Target background box
+                ctx.fillStyle = t.color;
+                ctx.shadowColor = t.color;
+                ctx.shadowBlur = 15;
+                ctx.beginPath();
+                ctx.roundRect(t.x, t.y, t.w, t.h, 16);
+                ctx.fill();
+
+                // Inner Border
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // Target Text Label
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 26px Fredoka";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(t.text, t.x + t.w / 2, t.y + t.h / 2);
+
+                ctx.restore();
+            });
+        }
+
+        function updateBallPhysics() {
+            if (answerBall.isFlying) {
+                // Move Ball
+                answerBall.x += answerBall.vx;
+                answerBall.y += answerBall.vy;
+
+                // Gravity effect
+                answerBall.vy += 0.4;
+
+                // Collision Detection with Target Options
+                targets.forEach((t) => {
+                    if (
+                        answerBall.x > t.x &&
+                        answerBall.x < t.x + t.w &&
+                        answerBall.y > t.y &&
+                        answerBall.y < t.y + t.h
+                    ) {
+                        checkAnswer(t.text, t.x + t.w / 2, t.y + t.h / 2);
+                    }
+                });
+
+                // Reset Ball if it leaves screen boundaries
+                if (
+                    answerBall.y > canvas.height + 50 ||
+                    answerBall.x < -50 ||
+                    answerBall.x > canvas.width + 50
+                ) {
+                    resetBallPosition();
+                }
+            }
+        }
+
+        function drawAnswerBall() {
+            ctx.save();
+            ctx.translate(answerBall.x, answerBall.y);
+
+            // Ball Glow/Shadow
+            ctx.shadowColor = answerBall.isGrabbed ? "#fde047" : "#38bdf8";
+            ctx.shadowBlur = answerBall.isGrabbed ? 25 : 12;
+
+            // Outer Gradient Circle
+            const grad = ctx.createRadialGradient(0, 0, 5, 0, 0, answerBall.radius);
+            grad.addColorStop(0, "#fef08a");
+            grad.addColorStop(0.7, "#f59e0b");
+            grad.addColorStop(1, "#d97706");
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(0, 0, answerBall.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // White Ring outline
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Center Icon / Text
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 16px Fredoka";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("JAWAPAN", 0, 0);
+
+            ctx.restore();
+        }
+
+        function drawHandTrail() {
+            if (!handDetected) return;
+
+            // 1. Draw Slash / Motion Trail FX
+            for (let i = 0; i < trailPoints.length - 1; i++) {
+                const pt1 = trailPoints[i];
+                const pt2 = trailPoints[i + 1];
+
+                ctx.save();
+                ctx.strokeStyle = isPinched ? `rgba(253, 224, 71, ${i / trailPoints.length})` : `rgba(56, 189, 248, ${i / trailPoints.length})`;
+                ctx.lineWidth = (i / trailPoints.length) * 12;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(pt1.x, pt1.y);
+                ctx.lineTo(pt2.x, pt2.y);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // 2. Hand Gesture Cursor Marker
+            ctx.save();
+            ctx.translate(handX, handY);
+
+            ctx.fillStyle = isPinched ? '#ef4444' : '#38bdf8';
+            ctx.shadowColor = isPinched ? '#ef4444' : '#38bdf8';
+            ctx.shadowBlur = 15;
+
+            // Outer Pulsing Cursor Ring
+            ctx.beginPath();
+            ctx.arc(0, 0, isPinched ? 14 : 20, 0, Math.PI * 2);
+            ctx.fillStyle = isPinched ? "rgba(239, 68, 68, 0.4)" : "rgba(56, 189, 248, 0.3)";
+            ctx.fill();
+
+            // Inner Center Pinch Dot
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.strokeStyle = isPinched ? '#ef4444' : '#0284c7';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        /**
+         * 10. ANSWER VERIFICATION & GAME PROGRESSION
+         */
+        function checkAnswer(selectedOption, targetX, targetY) {
+            const currentQ = QUESTIONS[currentQIndex];
+            if (!currentQ || answerBall.isGrabbed === undefined) return;
+
+            answerBall.isFlying = false;
+
+            if (selectedOption === currentQ.correct) {
+                // CORRECT ANSWER
+                sfx.playCorrect();
+                createExplosion(targetX, targetY, "#10b981");
+                score += 10;
+                document.getElementById('score-val').innerText = score;
+
+                // Load Next Question after slight delay
+                setTimeout(() => {
+                    loadQuestion(currentQIndex + 1);
+                }, 800);
+            } else {
+                // WRONG ANSWER
+                sfx.playWrong();
+                createExplosion(targetX, targetY, "#ef4444");
+                lives--;
+                updateLivesUI();
+
+                if (lives <= 0) {
+                    endGame(false);
+                } else {
+                    resetBallPosition();
+                }
+            }
+        }
+
+        function resetBallPosition() {
+            answerBall.isGrabbed = false;
+            answerBall.isFlying = false;
+            answerBall.x = canvas.width / 2;
+            answerBall.y = canvas.height - 80;
+            answerBall.vx = 0;
+            answerBall.vy = 0;
+        }
+
+        /**
+         * 11. GAME CONTROL & TIMER FUNCTIONS
+         */
+        function startGame() {
+            sfx.init();
+            score = 0;
+            lives = 3;
+            timeLeft = 120;
+            currentQIndex = 0;
+            isGameOver = false;
+            gameStarted = true;
+
+            document.getElementById('score-val').innerText = score;
+            document.getElementById('timer-val').innerText = `${timeLeft}s`;
+            updateLivesUI();
+
+            document.getElementById('start-modal').classList.add('hidden');
+            document.getElementById('gameover-modal').classList.add('hidden');
+
+            resizeCanvas();
+            loadQuestion(0);
+
+            // Start Webcam Camera Feed
+            camera.start().catch((err) => {
+                alert("Ralat mengakses kamera/webcam: " + err.message);
+            });
+
+            // Start Countdown Timer
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (!isGameOver) {
+                    timeLeft--;
+                    document.getElementById('timer-val').innerText = `${timeLeft}s`;
+                    if (timeLeft <= 0) {
+                        endGame(false);
+                    }
+                }
+            }, 1000);
+        }
+
+        function endGame(isVictory) {
+            isGameOver = true;
+            clearInterval(timerInterval);
+
+            const modal = document.getElementById('gameover-modal');
+            const title = document.getElementById('gameover-title');
+            const msg = document.getElementById('gameover-msg');
+            const icon = document.getElementById('gameover-icon');
+
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('final-time').innerText = `${timeLeft}s`;
+
+            if (isVictory) {
+                title.innerText = "TAHNIAH! JUARA!";
+                msg.innerText = "Kamu telah berjaya menjawab semua soalan kata hubung dengan cemerlang!";
+                icon.className = "w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-4xl shadow-lg animate-bounce";
+                icon.innerHTML = `<i class="fa-solid fa-trophy"></i>`;
+                sfx.playCorrect();
+            } else {
+                title.innerText = "CUBA LAGI!";
+                msg.innerText = "Masa atau nyawa kamu telah habis. Jangan putus asa, mari cuba semula!";
+                icon.className = "w-20 h-20 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-4xl shadow-lg";
+                icon.innerHTML = `<i class="fa-solid fa-heart-crack"></i>`;
+                sfx.playWrong();
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        // EVENT LISTENERS FOR BUTTONS
+        document.getElementById('btn-start').addEventListener('click', startGame);
+        document.getElementById('btn-restart').addEventListener('click', startGame);
+
+        // INITIAL CANVAS STARTUP
+        window.onload = () => {
+            resizeCanvas();
+            requestAnimationFrame(gameLoop);
+        };
+    </script>
+</body>
+</html>
